@@ -1,0 +1,5 @@
+index-dark.html
+dbg.html
+*.before-*.html
+__pycache__/
+.github/

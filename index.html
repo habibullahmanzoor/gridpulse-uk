@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GridPulse UK</title>
+<meta name="description" content="Live 3D map of Great Britain's electricity grid: regional carbon intensity, generation mix and the cleanest time to use power.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/deck.gl@8.9.35/dist.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#fff9f0;--panel:#fff9f0;--line:#000609;--text:#000609;--mute:#4f565c;--red:#ee4623;--blue:#0a65db;--yellow:#ffd23f;--pink:#f4c6c6;--accent:#0a65db;
+ --mono:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--display:'Archivo Black','DM Sans',system-ui,sans-serif}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font:15px/1.6 'DM Sans',system-ui,sans-serif}
+#app{display:grid;grid-template-columns:1fr 430px;height:100vh}
+#mapwrap{position:relative;overflow:hidden;background:var(--bg)}
+#map{position:absolute;inset:0}
+#lbls{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lbl{position:absolute;left:0;top:0;visibility:hidden;background:var(--bg);color:var(--text);border:1px solid var(--text);padding:4px 9px 5px;text-align:center;line-height:1.15;white-space:nowrap;transition:opacity .25s,background .2s;will-change:transform}
+.lbl:after{content:"";position:absolute;left:50%;top:100%;width:1px;height:9px;background:var(--text)}
+.lbl .ln{display:block;font:700 10px var(--mono);letter-spacing:.09em;text-transform:uppercase}
+.lbl .lv{font:400 16px var(--display);letter-spacing:.01em}
+.lbl .ld{display:block;font:700 11px var(--mono);margin-top:2px}
+.lbl.on{background:var(--text);color:var(--bg);z-index:3;padding:7px 14px 8px}
+.lbl.on:after{background:var(--text);height:12px}
+.lbl.on .lv{font-size:26px}
+.lbl.off{opacity:0}
+.brand{position:absolute;top:20px;left:24px;pointer-events:none}
+.brand h1{margin:0;font:400 46px/1.05 var(--display);letter-spacing:.019em}
+.brand h1 span{color:var(--blue)}
+.brand p{margin:8px 0 0;color:var(--text);font-size:15px;line-height:1.7;max-width:380px}
+.tabs{position:absolute;top:20px;right:20px;display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;max-width:62%}
+.tabs button{font:700 13px var(--mono);color:var(--text);background:var(--bg);border:1px solid var(--text);border-radius:9999px;padding:8px 18px;cursor:pointer}
+.tabs button:hover{background:#fff}
+.tabs button.on{color:var(--blue);border:2px solid var(--blue);padding:7px 17px}
+.tabs button.on:before{content:"\25B8 "}
+.legend{position:absolute;left:24px;bottom:22px;font:11px var(--mono);color:var(--mute);pointer-events:none}
+.bar{width:220px;height:8px;border-radius:4px;margin:6px 0 4px;border:1px solid var(--text);height:12px;background:linear-gradient(90deg,var(--blue) 0 33.3%,#e8dcc8 33.3% 66.6%,var(--red) 66.6%)}
+.legend div.r{display:flex;justify-content:space-between;width:220px}
+.hint{position:absolute;right:16px;bottom:22px;font:11px var(--mono);color:var(--mute);pointer-events:none}
+#panel{background:var(--panel);border-left:1px solid var(--text);overflow:hidden;padding:16px 20px 12px;display:flex;flex-direction:column;height:100vh;min-height:0}
+.live{font:11px var(--mono);color:var(--mute);display:flex;align-items:center;gap:8px}
+.live i{width:9px;height:9px;border-radius:50%;background:var(--red);animation:p 1.6s infinite}
+@keyframes p{50%{opacity:.2}}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 4px}
+.kpi{border:1px solid var(--text);border-radius:0;padding:8px 10px;min-width:0}
+.kpi .l{font-size:9.5px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono)}
+.kpi .v{font:400 21px var(--display);letter-spacing:.01em;white-space:nowrap}
+.kpi .v small{font-size:10px;font-weight:500;color:var(--mute);letter-spacing:0;margin-left:2px}
+h3{font:700 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin:14px 0 8px;display:flex;justify-content:space-between}
+.dev{display:grid;grid-template-columns:128px 1fr 62px;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:default}
+.dev .t{position:relative;height:8px;background:#efe5d3;border-radius:0}
+.dev .t b{position:absolute;top:0;height:8px;border-radius:0}
+.dev .t:after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--text)}
+.dev .n{font:700 12px var(--mono);text-align:right}
+.pos{color:var(--red)}.neg{color:var(--blue)}
+.best{font:400 20px/1.25 var(--display);letter-spacing:.01em}
+.best small{display:block;font-weight:400;color:var(--mute);font-size:12px;margin-top:2px}
+.chart{position:relative;flex:1;min-height:80px}
+.pt{display:flex;gap:2px;margin-top:14px;border-bottom:1px solid var(--text)}
+.pt button{font:700 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute);background:none;border:0;border-bottom:2px solid transparent;padding:8px 12px;cursor:pointer;margin-bottom:-1px}
+.pt button:hover{color:var(--text)}
+.pt button.on{color:var(--blue);border-bottom:3px solid var(--blue)}
+.pane{display:none;flex:1;min-height:0;flex-direction:column;padding-top:10px}
+.pane.on{display:flex}
+.lg i{display:inline-block;width:16px;height:0;border-top:2px solid #000609;vertical-align:middle;margin:0 4px 0 10px}.lg i.d{border-top:2px dashed #7d848a}
+.leg{display:flex;flex-wrap:wrap;gap:4px 12px;font:11px var(--mono);color:var(--mute);margin-top:10px}
+.leg span{display:inline-flex;align-items:center;gap:5px}.leg i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.credit{margin-top:14px;font:700 14px var(--mono);color:var(--text);pointer-events:auto;display:inline-flex;align-items:center;gap:10px;text-decoration:none;padding:5px 18px 5px 5px;border:1px solid var(--text);border-radius:9999px;background:var(--bg)}
+.credit:hover{background:#fff}
+.credit .li{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#0a66c2}
+.credit b{font-weight:700}
+.credit span.by{font-weight:400;color:var(--mute)}
+
+.sel{border:1px solid var(--text);border-radius:0;padding:10px 12px;margin-top:10px;font-size:13px}
+#err{display:none;background:#5b1a1a;padding:10px 12px;border-radius:8px;margin-top:12px}
+footer{color:var(--mute);font-size:10.5px;margin-top:8px;padding-top:8px;border-top:1px solid var(--text);line-height:1.45}
+footer a{color:var(--blue);font-weight:700}
+.deck-tooltip{font:12px var(--mono)!important;background:#0e0e12!important;border:1px solid #2b2b35;border-radius:8px!important;padding:8px 10px!important}
+@media (max-width:900px){
+ #app{grid-template-columns:1fr;grid-template-rows:55vh auto;height:auto}
+ #panel{border-left:0;border-top:1px solid var(--line);height:auto;overflow:visible}
+ .pane .chart{min-height:230px;flex:none}
+ .tabs{max-width:100%;left:20px;top:auto;bottom:60px;justify-content:flex-start}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div id="lbls"></div>
+    <div class="brand"><h1>Grid<span>Pulse</span> UK</h1><p id="desc"></p>
+      <a class="credit" href="https://www.linkedin.com/in/habib-ullah-manzoor-phd-smieee-miet-19198994/" target="_blank" rel="noopener" title="Open LinkedIn profile"><span class="by">Built by</span> <span class="li"><svg viewBox="0 0 24 24" width="20" height="20" fill="#fff" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.03-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45z"/></svg></span><b>Dr Habib Ullah Manzoor</b></a></div>
+    <nav class="tabs" id="tabs"></nav>
+    <div class="legend"><div class="bar"></div><div class="r"><span>cleaner</span><span id="avg">GB avg</span><span>dirtier</span></div></div>
+    <div class="hint">hover a region · drag to rotate · scroll to zoom</div>
+  </div>
+  <aside id="panel">
+    <div class="live"><i></i><span id="upd">loading…</span></div>
+    <div id="err">Couldn't reach the live data API. Retrying in 5 minutes.</div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Intensity</div><div class="v" id="k-int">–</div></div>
+      <div class="kpi"><div class="l">Low carbon</div><div class="v" id="k-low">–</div></div>
+      <div class="kpi"><div class="l">Wind + solar</div><div class="v" id="k-ren">–</div></div>
+      <div class="kpi"><div class="l">Largest source</div><div class="v" id="k-top" style="font-size:17px;padding-top:3px">–</div></div>
+    </div>
+
+    <h3 style="margin-top:12px">Region focus <span>hover · click to pin</span></h3>
+    <div class="sel" id="focus" style="margin-top:0;min-height:96px"></div>
+
+    <nav class="pt" id="pt">
+      <button data-p="p-fc" class="on">Forecast</button><button data-p="p-reg">Regions</button><button data-p="p-mix">Mix 48h</button>
+    </nav>
+    <section class="pane" id="p-reg">
+      <h3 style="margin-top:4px">Largest deviations <span id="devh">vs GB avg</span></h3>
+      <div id="dev"></div>
+    </section>
+    <section class="pane on" id="p-fc">
+      <h3 style="margin-top:4px" id="bt">Best time to use power</h3>
+      <div class="best" id="best">–</div>
+      <h3 id="t1"></h3>
+      <div class="chart" style="flex:3"><canvas id="c-int"></canvas></div>
+      <h3 id="t2"></h3>
+      <div class="chart" style="flex:2;min-height:70px"><canvas id="c-dev"></canvas></div>
+    </section>
+    <section class="pane" id="p-mix">
+      <h3 style="margin-top:4px" id="mt"></h3>
+      <div class="chart"><canvas id="c-hist"></canvas></div>
+      <div class="leg" id="mixleg"></div>
+    </section>
+
+    <footer>Data: <a href="https://carbonintensity.org.uk">Carbon Intensity API</a> (National Grid ESO &amp; Univ. of Oxford), Great Britain only. The API's 14 grid regions are mapped onto 11 ONS regions (South East, Wales and Scotland are averages of two), so boundaries are approximate. Boundaries: ONS ITL1, OGL. Refreshes every 5 min.</footer>
+  </aside>
+</div>
+
+<script>
+const API='https://api.carbonintensity.org.uk';
+const COL={biomass:'#b9a64a',coal:'#000609',gas:'#ee4623',hydro:'#7fb2f0',imports:'#bdb4a2',nuclear:'#f4a6a6',other:'#e3d9c6',solar:'#ffd23f',wind:'#0a65db'};
+const FUELS=['nuclear','biomass','hydro','wind','solar','imports','gas','coal','other'];
+const LOW=['biomass','hydro','nuclear','solar','wind'];
+// ONS ITL1 region -> Carbon Intensity region ids
+const MAP={'North East (England)':[4],'North West (England)':[3],'Yorkshire and The Humber':[5],'East Midlands (England)':[9],
+ 'West Midlands (England)':[8],'East (England)':[10],'London':[13],'South East (England)':[12,14],'South West (England)':[11],
+ 'Wales':[6,7],'Scotland':[1,2]};
+const SHORT={'North East (England)':'North East','North West (England)':'North West','Yorkshire and The Humber':'Yorkshire','East Midlands (England)':'East Midlands',
+ 'West Midlands (England)':'West Midlands','East (England)':'East of England','London':'London','South East (England)':'South East','South West (England)':'South West','Wales':'Wales','Scotland':'Scotland'};
+const BASE=[236,226,208];
+Chart.defaults.color='#4f565c';Chart.defaults.borderColor='rgba(0,6,9,.12)';Chart.defaults.font.family="'DM Sans',sans-serif";Chart.defaults.font.weight=700;
+Object.assign(Chart.defaults.plugins.tooltip,{backgroundColor:'#fff9f0',titleColor:'#000609',bodyColor:'#000609',borderColor:'#000609',borderWidth:1,padding:10,cornerRadius:0,boxPadding:4,displayColors:true});Chart.defaults.font.size=10;
+const iso=d=>d.toISOString().slice(0,16)+'Z';
+const hhmm=s=>new Date(s).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+const dayhh=s=>new Date(s).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'});
+const get=async p=>{const r=await fetch(API+p);if(!r.ok)throw new Error(r.status);return (await r.json()).data};
+const $=id=>document.getElementById(id);
+const charts={};
+function draw(id,cfg){if(charts[id])charts[id].destroy();charts[id]=new Chart($(id),cfg)}
+function colour(dev){ // dev as fraction of average
+  const m=Math.min(Math.abs(dev)/0.6,1),t=dev>0?[238,70,35]:[10,101,219];
+  return BASE.map((b,i)=>Math.round(b+(t[i]-b)*(0.3+0.7*m)))}
+function fmtPct(x){return (x>0?'+':'')+(x*100).toFixed(1)+'%'}
+// Each tab = one metric. goodHigh: a higher value is cleaner (blue). floor: stops tiny averages inflating deviations.
+const METRICS=[
+ {key:'intensity',tab:'Carbon',unit:' g/kWh',goodHigh:false,floor:0,desc:'Carbon intensity of electricity generated in each region (gCO₂ per kWh).'},
+ {key:'lowcarbon',tab:'Low-carbon',unit:'%',goodHigh:true,floor:100,desc:'Share of generation from wind, solar, hydro, nuclear and biomass.'},
+ {key:'wind',tab:'Wind',unit:'%',goodHigh:true,floor:50,desc:'Share of each region\'s generation coming from wind.'},
+ {key:'solar',tab:'Solar',unit:'%',goodHigh:true,floor:20,desc:'Share of each region\'s generation coming from solar.'},
+ {key:'nuclear',tab:'Nuclear',unit:'%',goodHigh:true,floor:30,desc:'Share of each region\'s generation coming from nuclear.'},
+ {key:'gas',tab:'Gas',unit:'%',goodHigh:false,floor:40,desc:'Share of each region\'s generation coming from gas. Higher means dirtier.'}];
+let metric=METRICS[0],nat={},maxV=1;
+function applyMetric(){
+  const k=metric.key,n0=nat[k];
+  maxV=Math.max(1,...Object.values(areas).map(a=>a.m[k]));
+  for(const a of Object.values(areas)){
+    a.value=a.m[k];
+    const raw=a.value-n0;
+    a.dev=(raw/Math.max(Math.abs(n0),metric.floor||1))*(metric.goodHigh?-1:1); // + = dirtier (red)
+    a.delta=k==='intensity'?fmtPct(raw/n0):(raw>0?'+':'')+raw.toFixed(1)+' pp';
+  }
+  $('avg').textContent='GB avg '+Math.round(n0)+(k==='intensity'?'':'%');
+  $('desc').textContent=metric.desc+' Height = value, colour = cleaner (blue) or dirtier (red) than the GB average.';
+  $('devh').textContent='vs GB avg · '+metric.tab.toLowerCase();
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+  const list=Object.entries(areas).sort((a,b)=>Math.abs(b[1].dev)-Math.abs(a[1].dev));
+  $('dev').innerHTML=list.map(([n,a])=>{
+    const w=Math.min(Math.abs(a.dev)/0.8,1)*50,cls=a.dev>0?'pos':'neg';
+    const st=a.dev>0?`left:50%;width:${w}%;background:var(--red)`:`right:50%;width:${w}%;background:var(--blue)`;
+    return `<div class="dev"><span>${SHORT[n]}</span><div class="t"><b style="${st}"></b></div><span class="n ${cls}">${a.delta}</span></div>`}).join('');
+  ver++;showFocus(hover);buildLabels();labelText();renderPanel();
+  if(deck_)deck_.setProps({layers:layers()});else initMap();
+}
+function setTab(k){const m=METRICS.find(x=>x.key===k);if(!m||m===metric)return;metric=m;try{history.replaceState(null,'','#'+k)}catch(e){}if(Object.keys(areas).length)applyMetric()}
+
+let geo=null,areas={},avg=0,deck_;
+const view={longitude:-3.2,latitude:54.4,zoom:5.3,pitch:52,bearing:-10,minZoom:3.5,maxZoom:8};
+
+let hover=null,hoverRaw=null,pinned=null,ver=0;
+const GRID=[];for(let x=-12;x<=6;x+=1)GRID.push([[x,48],[x,62]]);for(let y=48;y<=62;y+=1)GRID.push([[-12,y],[6,y]]);
+const lighting=new deck.LightingEffect({
+  amb:new deck.AmbientLight({color:[255,255,255],intensity:1.0}),
+  key:new deck.DirectionalLight({color:[255,255,255],intensity:.7,direction:[-3,-6,-2.5]})});
+let busy=false,t0=performance.now();
+const FLOOR=2500; // metres: height of regions that are not in focus
+let intro=true;
+const elev=n=>{const a=areas[n];if(!a||intro)return 0;return (hover&&hover!==n)?FLOOR:12000+78000*a.value/maxV};
+function layers(){
+  const feats=geo.features.filter(f=>areas[f.properties.ITL125NM]);
+  const labelled=hover?feats.filter(f=>f.properties.ITL125NM===hover):feats;
+  return [
+    new deck.PathLayer({id:'grid',data:GRID,getPath:d=>d,getColor:[0,6,9,22],widthUnits:'pixels',getWidth:1,pickable:false}),
+    new deck.GeoJsonLayer({id:'uk',data:geo,extruded:true,pickable:true,autoHighlight:false,
+      getElevation:f=>elev(f.properties.ITL125NM),
+      getFillColor:f=>{const n=f.properties.ITL125NM,a=areas[n];if(!a)return [222,212,194];
+        const c=colour(a.dev);return (hover&&hover!==n)?c.map((v,i)=>Math.round(BASE[i]+(v-BASE[i])*0.45)):c},
+      getLineColor:f=>f.properties.ITL125NM===hover?[0,6,9,255]:[0,6,9,150],lineWidthMinPixels:1,
+      material:{ambient:.82,diffuse:.38,shininess:4,specularColor:[0,0,0]},
+      transitions:{getElevation:{duration:900,easing:t=>1-Math.pow(1-t,3)},getFillColor:450},
+      onHover:info=>{const n=info.object?info.object.properties.ITL125NM:null;const h=n&&areas[n]?n:null;
+        if(h!==hoverRaw){hoverRaw=h;setFocus()}},
+      onClick:info=>{const n=info.object?info.object.properties.ITL125NM:null;const h=n&&areas[n]?n:null;
+        pinned=(h&&h!==pinned)?h:null;setFocus()},
+      updateTriggers:{getElevation:[hover,ver,intro],getFillColor:[hover,ver],getLineColor:[hover]}})
+  ];
+}
+
+const NUDGE={'West Midlands (England)':[-0.45,-0.05],'East Midlands (England)':[0.5,0.25],'South East (England)':[0.9,-0.45],'London':[-0.25,0.2],
+ 'East (England)':[0.35,0.15],'Scotland':[-0.3,0.2],'North West (England)':[-0.4,0.1],'North East (England)':[0.1,0.1],'South West (England)':[-0.3,-0.1]};
+const LBL={};
+function buildLabels(){
+  geo.features.forEach(f=>{const n=f.properties.ITL125NM;if(!areas[n]||LBL[n])return;
+    const el=document.createElement('div');el.className='lbl';$('lbls').appendChild(el);
+    const nu=NUDGE[n]||[0,0];LBL[n]={el,e:0,lng:f.properties.LONG+nu[0],lat:f.properties.LAT+nu[1]}})}
+function labelText(){
+  for(const [n,L] of Object.entries(LBL)){const a=areas[n];if(!a)continue;
+    const v=metric.key==='intensity'?Math.round(a.value):Math.round(a.value)+'%';
+    L.el.innerHTML=`<span class="ln">${SHORT[n]}</span><span class="lv">${v}</span>`+(hover===n?`<span class="ld">${a.delta} vs GB</span>`:'');
+    L.el.classList.toggle('on',hover===n);L.el.classList.toggle('off',!!hover&&hover!==n)}}
+function labelLoop(){
+  try{
+    const vp=deck_&&deck_.getViewports()[0];
+    if(vp&&vp.width>0)for(const [n,L] of Object.entries(LBL)){L.e+=(elev(n)-L.e)*0.14;
+      const [x,y]=vp.project([L.lng,L.lat,L.e]);
+      L.el.style.transform=`translate(${x}px,${y}px) translate(-50%,-100%) translateY(-6px)`;L.el.style.visibility='visible'}
+  }catch(e){}
+  requestAnimationFrame(labelLoop)}
+function initMap(){
+  deck_=new deck.Deck({parent:$('map'),initialViewState:view,controller:true,layers:layers(),effects:[lighting],
+    parameters:{clearColor:[0,0,0,0]},
+    onInteractionStateChange:st=>{if(st.isDragging||st.isZooming||st.isPanning||st.isRotating)busy=true}});
+  document.fonts&&document.fonts.ready.then(()=>{ver++;deck_.setProps({layers:layers()})});
+  labelLoop();
+  setTimeout(()=>{intro=false;ver++;deck_.setProps({layers:layers()})},250); // rise-up intro
+  (function sway(t){ // gentle idle camera sway until the user touches the map
+    if(!busy&&!hover&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+      const k=(t-t0)/1000;
+      deck_.setProps({initialViewState:{...view,bearing:view.bearing+7*Math.sin(k*.35),pitch:view.pitch+2.5*Math.sin(k*.23)}})}
+    requestAnimationFrame(sway)})(performance.now());
+}
+
+function setFocus(){
+  const nh=hoverRaw||pinned;if(nh===hover&&!setFocus.force)return;
+  hover=nh;showFocus(hover);labelText();renderPanel();
+  if(deck_)deck_.setProps({layers:layers()});
+  if(hover)loadRegion(hover)}
+function showFocus(n){
+  const el=$('focus');
+  if(!n){el.innerHTML='<span style="color:var(--mute)">Hover a region on the map, or click to pin it. The charts on the right follow your selection.</span>';return}
+  const a=areas[n],cls=a.dev>0?'pos':'neg';
+  const fuels=Object.entries(a.mix).filter(e=>e[1]>=0.5).sort((x,y)=>y[1]-x[1]);
+  el.innerHTML=`<div style="font-size:18px;font-weight:650">${SHORT[n]}</div>
+   <div style="margin:2px 0 8px"><b style="font-size:22px">${metric.key==='intensity'?Math.round(a.value):a.value.toFixed(1)}</b> <span style="color:var(--mute)">${metric.unit.trim()} · ${metric.tab.toLowerCase()}</span>
+   <span class="n ${cls}" style="font:13px var(--mono);margin-left:6px">${a.delta} vs GB</span></div>
+   <div style="color:var(--mute);font:12px var(--mono);margin-bottom:8px">carbon intensity ${Math.round(a.m.intensity)} g/kWh · ${a.index}</div>
+   <div style="display:flex;height:10px;border-radius:5px;overflow:hidden">${fuels.map(([f,p])=>`<i style="width:${p}%;background:${COL[f]}" title="${f}"></i>`).join('')}</div>
+   <div style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font:12px var(--mono)">${fuels.map(([f,p])=>`<span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${COL[f]};margin-right:4px"></i>${f} ${Math.round(p)}%</span>`).join('')}</div>`;
+}
+
+let G=null;const REG={},REGLOAD={};
+const toObj=arr=>Object.fromEntries(arr.map(m=>[m.fuel,m.perc]));
+const mixVal=(mix,k)=>k==='lowcarbon'?LOW.reduce((s,f)=>s+(mix[f]||0),0):(mix[k]||0);
+const nowLine={id:'now',afterDraw(ch){if(!G||G.nowIdx<0)return;const x=ch.scales.x.getPixelForValue(G.nowIdx),{top,bottom}=ch.chartArea,g=ch.ctx;g.save();g.strokeStyle='#000609';g.lineWidth=1.5;g.beginPath();g.moveTo(x,top);g.lineTo(x,bottom);g.stroke();g.restore()}};
+const yR=()=>({position:'right',afterFit:sc=>{sc.width=44},grid:{color:'rgba(0,6,9,.12)',drawTicks:false},border:{display:false},ticks:{maxTicksLimit:3,padding:6}});
+function upsert(id,cfg){const ch=charts[id];
+  if(!ch){charts[id]=new Chart($(id),cfg);return}
+  ch.data=cfg.data;const y=cfg.options.scales.y,cy=ch.options.scales.y;cy.min=y.min;cy.max=y.max;ch.update('none')}
+
+async function loadRegion(n){
+  if(!G||REG[n]||REGLOAD[n])return;REGLOAD[n]=1;
+  try{
+    const h=3600e3,now=G.now;
+    const rs=await Promise.all(MAP[n].map(id=>get(`/regional/intensity/${iso(new Date(now-24*h))}/${iso(new Date(+now+24*h))}/regionid/${id}`)));
+    const m=new Map();
+    rs.forEach(r=>r.data.forEach(p=>{let e=m.get(p.from);if(!e){e={i:0,c:0,mix:{}};m.set(p.from,e)}
+      e.i+=p.intensity.forecast;e.c++;p.generationmix.forEach(g=>e.mix[g.fuel]=(e.mix[g.fuel]||0)+g.perc)}));
+    for(const e of m.values()){e.i/=e.c;for(const f in e.mix)e.mix[f]/=e.c}
+    REG[n]={m};
+  }catch(e){console.error(e)}
+  delete REGLOAD[n];if(hover===n)renderPanel()}
+
+function renderPanel(){
+  if(!G||!Object.keys(areas).length)return;
+  const {span,hist,now}=G,k=metric.key,reg=hover&&REG[hover]?REG[hover]:null,name=hover?SHORT[hover]:'Great Britain';
+  const unit=k==='intensity'?'g/kWh':'%',idx=new Map(span.map((p,i)=>[p.from,i])),N=span.length;
+  const labels=span.map(p=>dayhh(p.from));
+  const gb=new Array(N).fill(null),gbF=new Array(N).fill(null);
+  if(k==='intensity')span.forEach((p,i)=>{gb[i]=p.intensity.actual;gbF[i]=p.intensity.forecast});
+  else hist.forEach(p=>{const i=idx.get(p.from);if(i!=null)gb[i]=mixVal(toObj(p.generationmix),k)});
+  let rg=null;
+  if(reg){rg=new Array(N).fill(null);for(const [t,e] of reg.m){const i=idx.get(t);if(i!=null)rg[i]=k==='intensity'?e.i:mixVal(e.mix,k)}}
+  const loading=hover&&!reg;
+
+  // ---- chart 1: the selected metric ----
+  const ds=[];let legend;
+  if(rg){
+    ds.push({label:'GB',data:k==='intensity'?gbF:gb,borderColor:'#7d848a',borderDash:[4,3],borderWidth:1.3,pointRadius:0,stepped:true});
+    ds.push({label:name,data:rg,borderColor:'#0a65db',borderWidth:2.2,pointRadius:0,stepped:true});
+    legend=`<i class="s" style="border-color:#0a65db"></i>${name} <i class="d"></i>GB`;
+  }else if(k==='intensity'){
+    ds.push({label:'forecast',data:gbF,borderColor:'#7d848a',borderDash:[4,3],borderWidth:1.3,pointRadius:0,stepped:true});
+    ds.push({label:'actual',data:gb,borderColor:'#000609',borderWidth:2,pointRadius:0,stepped:true});
+    legend='<i class="d"></i>forecast <i class="s"></i>actual';
+  }else{
+    ds.push({label:'GB',data:gb,borderColor:'#000609',borderWidth:2,pointRadius:0,stepped:true});
+    legend='<i class="s"></i>GB, past 24h';
+  }
+  const all=ds.flatMap(d=>d.data).filter(v=>v!=null);
+  let lo=Math.min(...all),hi=Math.max(...all);const pad=(hi-lo)*.12||1;
+  lo=Math.floor(lo-pad);hi=Math.ceil(hi+pad);if(k!=='intensity')lo=Math.max(0,lo);
+  $('t1').innerHTML=`${metric.tab} · ${name}${loading?' (loading…)':''} <span class="lg">${legend}</span>`;
+  upsert('c-int',{type:'line',data:{labels,datasets:ds},options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    scales:{x:{display:false},y:{...yR(),min:lo,max:hi}},plugins:{legend:{display:false},tooltip:{callbacks:{label:t=>` ${t.dataset.label}: ${t.parsed.y==null?'–':t.parsed.y.toFixed(k==='intensity'?0:1)}`}}}},plugins:[nowLine]});
+
+  // ---- chart 2: deviation ----
+  let dv,t2;
+  if(rg){const ref=k==='intensity'?gbF:gb;dv=rg.map((v,i)=>v==null||ref[i]==null?null:v-ref[i]);t2=`${name} − GB, ${k==='intensity'?'g/kWh':'pp'}`}
+  else if(k==='intensity'){dv=span.map(p=>p.intensity.actual==null?null:p.intensity.actual-p.intensity.forecast);t2='GB actual − forecast, g/kWh'}
+  else{const v=gb.filter(x=>x!=null),m=v.reduce((a,b)=>a+b,0)/(v.length||1);dv=gb.map(x=>x==null?null:x-m);t2='GB vs its 24h average, pp'}
+  $('t2').innerHTML=`Deviation <span>${t2}</span>`;
+  const up=metric.goodHigh?'#0a65db':'#ee4623',dn=metric.goodHigh?'#ee4623':'#0a65db';
+  upsert('c-dev',{type:'line',data:{labels,datasets:[
+    {label:'above',data:dv.map(v=>v==null?null:Math.max(v,0)),borderColor:up,backgroundColor:up+'66',fill:'origin',stepped:true,pointRadius:0,borderWidth:1.2},
+    {label:'below',data:dv.map(v=>v==null?null:Math.min(v,0)),borderColor:dn,backgroundColor:dn+'66',fill:'origin',stepped:true,pointRadius:0,borderWidth:1.2}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      scales:{x:{ticks:{maxTicksLimit:4,maxRotation:0,align:'inner'},grid:{display:false}},y:{...yR()}},plugins:{legend:{display:false}}},plugins:[nowLine]});
+
+  // ---- best window (carbon), for GB or the selected region ----
+  const series=(reg?[...reg.m].map(([t,e])=>({t,v:e.i})):span.map(p=>({t:p.from,v:p.intensity.forecast}))).filter(x=>new Date(x.t)>=now-30*60e3).sort((a,b)=>a.t<b.t?-1:1);
+  let bi=0,bv=1e9;for(let i=0;i+6<=series.length;i++){const a=series.slice(i,i+6).reduce((s,x)=>s+x.v,0)/6;if(a<bv){bv=a;bi=i}}
+  $('bt').textContent='Best time to use power · '+name;
+  if(series.length>=6){const fa=series.reduce((s,x)=>s+x.v,0)/series.length,end=new Date(+new Date(series[bi+5].t)+30*60e3);
+    $('best').innerHTML=`${dayhh(series[bi].t)} – ${hhmm(end)}<small>avg ${Math.round(bv)} gCO₂/kWh, ${Math.round((1-bv/fa)*100)}% below the next-24h average${loading?' · region loading…':''}</small>`}
+
+  // ---- mix chart ----
+  let rows;
+  if(reg){rows=[...reg.m].sort((a,b)=>a[0]<b[0]?-1:1).filter((_,i)=>i%2===0).map(([t,e])=>({t,mix:e.mix}));$('mt').innerHTML=`${name} · mix, 24h back + 24h forecast <span>% share</span>`}
+  else{rows=hist.filter((_,i)=>i%2===0).map(p=>({t:p.from,mix:toObj(p.generationmix)}));$('mt').innerHTML='Generation mix, last 48h <span>% share</span>'}
+  upsert('c-hist',{type:'line',data:{labels:rows.map(r=>dayhh(r.t)),datasets:FUELS.map(f=>({label:f,data:rows.map(r=>r.mix[f]||0),backgroundColor:COL[f],borderColor:'#fff9f0',fill:true,pointRadius:0,borderWidth:.8,tension:.3}))},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      scales:{x:{ticks:{maxTicksLimit:4,maxRotation:0},grid:{display:false}},y:{stacked:true,min:0,max:100,ticks:{callback:v=>v+'%',stepSize:25}}},
+      plugins:{legend:{display:false},tooltip:{itemSort:(a,b)=>b.parsed.y-a.parsed.y,filter:t=>t.parsed.y>=0.5,callbacks:{label:t=>` ${t.dataset.label}  ${t.parsed.y.toFixed(1)}%`}}}}});
+}
+
+async function load(){
+  try{
+    if(!geo)geo=await (await fetch('uk-regions.json')).json();
+    const now=new Date(),h=3600e3;
+    const [cur,gen,span,hist,reg]=await Promise.all([get('/intensity'),get('/generation'),
+      get(`/intensity/${iso(new Date(now-24*h))}/${iso(new Date(+now+24*h))}`),
+      get(`/generation/${iso(new Date(now-48*h))}/${iso(now)}`),get('/regional')]);
+    $('err').style.display='none';
+
+    // KPIs
+    const c=cur[0].intensity;avg=c.actual??c.forecast;
+    $('k-int').innerHTML=`${avg}<small>g/kWh</small>`;$('k-int').title=c.index;
+    const mix=gen.generationmix,sum=f=>mix.filter(m=>f.includes(m.fuel)).reduce((a,m)=>a+m.perc,0);
+    $('k-low').innerHTML=`${Math.round(sum(LOW))}<small>%</small>`;
+    $('k-ren').innerHTML=`${Math.round(sum(['wind','solar']))}<small>%</small>`;
+    const top=[...mix].sort((a,b)=>b.perc-a.perc)[0];
+    $('k-top').innerHTML=`${top.fuel[0].toUpperCase()+top.fuel.slice(1)}<small>${Math.round(top.perc)}%</small>`;
+    $('upd').textContent='UPDATED '+hhmm(now)+' · GB NATIONAL GRID';
+
+    // Region areas
+    const byId={};reg[0].regions.forEach(r=>byId[r.regionid]=r);
+    areas={};
+    for(const [name,ids] of Object.entries(MAP)){
+      const rs=ids.map(i=>byId[i]).filter(Boolean);if(!rs.length)continue;
+      const v=rs.reduce((s,r)=>s+r.intensity.forecast,0)/rs.length;
+      const fm={};rs.forEach(r=>r.generationmix.forEach(g=>fm[g.fuel]=(fm[g.fuel]||0)+g.perc/rs.length));
+      const t=Object.entries(fm).sort((a,b)=>b[1]-a[1])[0];
+      const lc=LOW.reduce((s,f)=>s+(fm[f]||0),0);
+      areas[name]={index:rs[0].intensity.index,top:`${t[0]} ${Math.round(t[1])}%`,mix:fm,
+        m:{intensity:v,lowcarbon:lc,wind:fm.wind||0,solar:fm.solar||0,nuclear:fm.nuclear||0,gas:fm.gas||0}};
+    }
+    nat={intensity:avg,lowcarbon:sum(LOW),wind:sum(['wind']),solar:sum(['solar']),nuclear:sum(['nuclear']),gas:sum(['gas'])};
+    if(!deck_){const q=new URLSearchParams(location.search).get('hover');if(q&&areas[q]){hover=q;pinned=q}}
+    applyMetric();
+
+    G={now,span,hist,nowIdx:span.findIndex(p=>new Date(p.to)>now)};
+    for(const k in REG)delete REG[k];
+    renderPanel();
+    if(hover)loadRegion(hover);
+  }catch(e){console.error(e);$('err').style.display='block';if(!deck_&&geo){areas={};initMap()}}
+}
+$('mixleg').innerHTML=FUELS.map(f=>`<span><i style="background:${COL[f]}"></i>${f}</span>`).join('');
+$('pt').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#pt button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.toggle('on',x.id===b.dataset.p));
+  Object.values(charts).forEach(c=>c.resize())});
+$('tabs').innerHTML=METRICS.map(m=>`<button data-k="${m.key}">${m.tab}</button>`).join('');
+$('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setTab(b.dataset.k)});
+addEventListener('keydown',e=>{const i=METRICS.indexOf(metric);
+  if(e.key==='ArrowRight')setTab(METRICS[(i+1)%METRICS.length].key);if(e.key==='ArrowLeft')setTab(METRICS[(i+METRICS.length-1)%METRICS.length].key)});
+{const k=location.hash.slice(1),m=METRICS.find(x=>x.key===k);if(m)metric=m}
+$('desc').textContent=metric.desc;
+{const pq=new URLSearchParams(location.search).get('pane'),b=pq&&document.querySelector(`#pt button[data-p="${pq}"]`);if(b)b.click()}
+if(document.fonts)document.fonts.ready.then(()=>Object.values(charts).forEach(c=>c.resize()));
+addEventListener('resize',()=>Object.values(charts).forEach(c=>c.resize()));
+load();setInterval(load,5*60e3);
+</script>
+</body>
+</html>
